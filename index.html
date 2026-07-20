@@ -39,6 +39,25 @@
             line-height: 1.6;
         }
 
+        /* ロックボタン */
+        .btn-lock {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            font-weight: bold;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-bottom: 15px;
+            transition: background-color 0.2s;
+        }
+        .btn-lock.locked {
+            background-color: #f44336;
+        }
+
         /* 鍵盤UI */
         .keyboard-scroll-wrapper {
             overflow-x: auto;
@@ -71,6 +90,7 @@
         .key {
             position: relative;
             box-sizing: border-box;
+            transition: background 0.1s;
         }
         .white-key {
             width: 40px;
@@ -113,10 +133,24 @@
             font-weight: bold;
             border: 1px solid #aaa;
             border-radius: 4px;
-            /* text-transform: uppercase; 今回は記号も含むため大文字変換は外してもOKですが、見た目のために残します */
         }
         .white-key .key-input { background: #f0f0f0; color: #000; }
         .black-key .key-input { background: #444; color: #fff; border: 1px solid #222; }
+
+        /* ロック状態の鍵盤スタイル */
+        .keyboard.locked .key {
+            cursor: pointer;
+        }
+        .keyboard.locked .white-key:active {
+            background: #e0e0e0;
+        }
+        .keyboard.locked .black-key:active {
+            background: #222;
+        }
+        .keyboard.locked .key-input {
+            pointer-events: none; /* 入力を無効化して鍵盤クリックを優先 */
+            opacity: 0.6;
+        }
 
         /* 楽譜入力UI */
         .toolbar {
@@ -251,6 +285,10 @@
 
     <div class="section">
         <h2>1. キー配置の設定</h2>
+        <p class="help-text">ロックをオンにすると、鍵盤をクリックして楽譜に入力できるようになります。</p>
+        
+        <button id="lock-btn" class="btn-lock" onclick="toggleLock()">🔓 キー配置をロックする (鍵盤クリック入力OFF)</button>
+
         <div class="keyboard-scroll-wrapper">
             <div class="keyboard" id="keyboard">
                 <!-- JavaScriptで鍵盤を生成 -->
@@ -260,7 +298,7 @@
 
     <div class="section">
         <h2>2. 楽譜の入力 (クリックで配置)</h2>
-        <p class="help-text">五線譜上をクリックして音符を置いてください。<br>※スペースキーを押すと、黒鍵（シャープ）のON/OFFが切り替わります。</p>
+        <p class="help-text">五線譜上、またはロック中の鍵盤をクリックして音符を置いてください。<br>※スペースキーを押すと、黒鍵（シャープ）のON/OFFが切り替わります（五線譜入力用）。</p>
         
         <div class="toolbar">
             <button id="sharp-btn" class="btn-sharp" onclick="toggleSharp()">♯ シャープ(黒鍵)をON [Space]</button>
@@ -282,7 +320,7 @@
     <div class="section">
         <h2>3. 変換結果</h2>
         <p class="help-text">入力した楽譜に対応するゲーム用文字列です。自動で更新されます。</p>
-        <textarea id="result" rows="3" readonly placeholder="五線譜に音符を置くとここに表示されます"></textarea>
+        <textarea id="result" rows="3" readonly placeholder="音符を配置するとここに表示されます"></textarea>
     </div>
 
     <script>
@@ -305,6 +343,8 @@
         // 初期セット用のキー配列（白鍵・黒鍵別）
         const defaultWhiteKeys = "zxcvbnmasdfghjqwertyu".split("");
         const defaultBlackKeys = "1234567890iop@[".split("");
+
+        let isLocked = false;
 
         window.onload = () => {
             // 鍵盤生成
@@ -341,8 +381,17 @@
                         <div class="key-label">${displayLabel}</div>
                         <input type="text" class="key-input" data-note="${fullNoteName}" value="${defKey}" maxlength="1" autocomplete="off">
                     `;
+
                     // 入力変更時に即座に結果へ反映
                     keyDiv.querySelector('input').addEventListener('input', updateOutput);
+                    
+                    // ロック中の鍵盤クリックイベント
+                    keyDiv.addEventListener('click', () => {
+                        if (isLocked) {
+                            addNoteFromKey(fullNoteName);
+                        }
+                    });
+
                     octaveDiv.appendChild(keyDiv);
                 });
                 keyboardDiv.appendChild(octaveDiv);
@@ -357,19 +406,37 @@
                 line.style.top = y + 'px';
                 staffInner.appendChild(line);
             });
-            // 小節線（左端）
             const barLine = document.createElement('div');
             barLine.style.cssText = "position:absolute; left:0; top:30px; height:200px; width:2px; background:#222;";
             staffInner.appendChild(barLine);
         };
 
+        // --- ロック機能 ---
+        function toggleLock() {
+            isLocked = !isLocked;
+            const btn = document.getElementById('lock-btn');
+            const keyboard = document.getElementById('keyboard');
+            const inputs = document.querySelectorAll('.key-input');
+
+            if (isLocked) {
+                btn.classList.add('locked');
+                btn.innerHTML = '🔒 キー配置ロック中 (鍵盤クリック入力ON)';
+                keyboard.classList.add('locked');
+                inputs.forEach(input => input.readOnly = true);
+            } else {
+                btn.classList.remove('locked');
+                btn.innerHTML = '🔓 キー配置をロックする (鍵盤クリック入力OFF)';
+                keyboard.classList.remove('locked');
+                inputs.forEach(input => input.readOnly = false);
+            }
+        }
+
         // --- 楽譜入力（五線譜）のロジック ---
         let isSharpMode = false;
         let scoreList = [];
-        const staffOffsetX = 70; // 最初の音符のX位置（音部記号を避ける）
-        const noteSpacing = 40;  // 音符間の距離
+        const staffOffsetX = 70; 
+        const noteSpacing = 40;  
 
-        // Y座標(上からのpx) と 音階のマッピング
         const pitches = [
             { y: 0, note: '高シ' }, { y: 10, note: '高ラ', ledger: true },
             { y: 20, note: '高ソ' }, { y: 30, note: '高ファ' },
@@ -377,14 +444,13 @@
             { y: 60, note: '高ド' }, { y: 70, note: 'シ' },
             { y: 80, note: 'ラ' }, { y: 90, note: 'ソ' },
             { y: 100, note: 'ファ' }, { y: 110, note: 'ミ' },
-            { y: 120, note: 'レ' }, { y: 130, note: 'ド', ledger: true }, // 真ん中のド
+            { y: 120, note: 'レ' }, { y: 130, note: 'ド', ledger: true },
             { y: 140, note: '低シ' }, { y: 150, note: '低ラ' },
             { y: 160, note: '低ソ' }, { y: 170, note: '低ファ' },
             { y: 180, note: '低ミ' }, { y: 190, note: '低レ' },
             { y: 200, note: '低ド' }
         ];
 
-        // ミとシはシャープを無効化
         function canBeSharp(noteName) {
             return !(noteName.endsWith('ミ') || noteName.endsWith('シ'));
         }
@@ -392,7 +458,7 @@
         const staffArea = document.getElementById('staff-area');
         const ghostNote = document.getElementById('ghost-note');
 
-        // マウスの動きに合わせてプレビュー（幽霊音符）を表示
+        // 五線譜マウス追従
         staffArea.addEventListener('mousemove', (e) => {
             const rect = staffArea.getBoundingClientRect();
             let y = e.clientY - rect.top + staffArea.scrollTop;
@@ -413,7 +479,7 @@
             ghostNote.style.display = 'none';
         });
 
-        // クリックで音符を確定
+        // 五線譜クリック
         staffArea.addEventListener('click', (e) => {
             if (ghostNote.style.display === 'none') return;
             const snappedY = parseInt(ghostNote.style.top);
@@ -425,39 +491,48 @@
             
             renderScore();
             updateOutput();
-            
-            // 配置後、プレビュー位置を次のスペースへ移動させるための再計算
             ghostNote.style.left = (staffOffsetX + scoreList.length * noteSpacing) + 'px';
         });
 
-        // 音符のDOM構造を生成（符尾の向きや加線の計算を含む）
+        // 鍵盤クリックからの入力処理
+        function addNoteFromKey(fullNoteName) {
+            const isSharp = fullNoteName.includes('#');
+            const baseNoteName = fullNoteName.replace('#', '');
+            const pitch = pitches.find(p => p.note === baseNoteName);
+
+            if (!pitch) return;
+
+            scoreList.push({ pitch, isSharp });
+            renderScore();
+            updateOutput();
+            
+            // プレビュー位置の更新
+            ghostNote.style.left = (staffOffsetX + scoreList.length * noteSpacing) + 'px';
+        }
+
+        // 音符HTML生成
         function generateNoteHTML(pitch, isSharp, isGhost = false) {
             let html = '';
-            // シャープ
             if (isSharp) html += '<span class="sharp-sign">♯</span>';
-            // 加線（レジャーライン）
             if (pitch.y === 130) {
                 html += '<div class="ledger-line" style="top: 50%;"></div>';
             } else if (pitch.y <= 10) {
                 html += `<div class="ledger-line" style="top: ${10 - pitch.y + 5}px;"></div>`;
             }
-            // 符尾（大譜表ルールに合わせた上下）
             let stemDir = 'up';
             if (pitch.y < 130) stemDir = pitch.y >= 70 ? 'up' : 'down';
             else stemDir = pitch.y >= 190 ? 'up' : 'down';
             html += `<div class="stem-${stemDir}"></div>`;
 
-            // プレビュー用のラベル
             if (isGhost) {
                 html += `<div class="pitch-label">${pitch.note}${isSharp ? '♯' : ''}</div>`;
             }
             return html;
         }
 
-        // 確定済みの音符を描画
+        // 描画
         function renderScore() {
             const staffInner = document.getElementById('staff-inner');
-            // 既存の音符をクリア（五線や記号以外）
             document.querySelectorAll('.placed-note').forEach(el => el.remove());
 
             scoreList.forEach((noteData, index) => {
@@ -469,13 +544,12 @@
                 staffInner.appendChild(div);
             });
 
-            // スクロール領域の拡張
             const requiredWidth = staffOffsetX + scoreList.length * noteSpacing + 100;
             staffInner.style.width = Math.max(staffArea.clientWidth, requiredWidth) + 'px';
             staffArea.scrollLeft = staffArea.scrollWidth;
         }
 
-        // 結果テキストの更新
+        // 結果更新
         function updateOutput() {
             const mapping = {};
             document.querySelectorAll('.key-input').forEach(input => {
@@ -487,13 +561,12 @@
             const resultKeys = scoreList.map(noteData => {
                 let noteName = noteData.pitch.note;
                 if (noteData.isSharp) noteName += '#';
-                // マッピングがあれば英数字、なければ音階名をそのまま出力
                 return mapping[noteName] !== undefined ? mapping[noteName] : noteName;
             });
             document.getElementById('result').value = resultKeys.join(' ');
         }
 
-        // --- ツールバーの操作 ---
+        // --- ツールバー操作 ---
         function toggleSharp() {
             isSharpMode = !isSharpMode;
             const btn = document.getElementById('sharp-btn');
@@ -504,7 +577,6 @@
                 btn.classList.remove('active');
                 btn.innerText = '♯ シャープ(黒鍵)をON [Space]';
             }
-            // プレビューの更新
             if (ghostNote.style.display === 'block') {
                 const snappedY = parseInt(ghostNote.style.top);
                 const pitch = pitches.find(p => p.y === snappedY);
@@ -528,7 +600,6 @@
             ghostNote.style.left = staffOffsetX + 'px';
         }
 
-        // スペースキーでシャープ切り替え
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Space' && document.activeElement.tagName !== 'INPUT') {
                 e.preventDefault();
