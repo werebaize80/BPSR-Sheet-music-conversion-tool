@@ -148,11 +148,11 @@
             background: #222;
         }
         .keyboard.locked .key-input {
-            pointer-events: none; /* 入力を無効化して鍵盤クリックを優先 */
+            pointer-events: none;
             opacity: 0.6;
         }
 
-        /* 楽譜入力UI */
+        /* ツールバー */
         .toolbar {
             display: flex;
             gap: 10px;
@@ -175,6 +175,7 @@
         .btn-undo { background-color: #ff9800; }
         .btn-clear { background-color: #f44336; }
 
+        /* 五線譜UI */
         .staff-area {
             width: 100%;
             height: 280px;
@@ -215,12 +216,19 @@
             width: 14px;
             height: 10px;
             background: #000;
+            color: #000;
             border-radius: 50%;
             transform: translate(-50%, -50%);
             pointer-events: none;
+            transition: background 0.1s, color 0.1s;
+        }
+        .note-element.playing {
+            background: #dc3545 !important;
+            color: #dc3545 !important; /* 符尾と加線も赤くする */
         }
         .ghost-note {
             background: rgba(0, 123, 255, 0.4);
+            color: rgba(0, 123, 255, 0.4);
             display: none;
         }
         .stem-up {
@@ -266,6 +274,27 @@
             border-radius: 2px;
         }
 
+        /* 再生コントロール */
+        .playback-controls {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .playback-controls button {
+            padding: 10px 20px;
+            font-size: 15px;
+            font-weight: bold;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            color: white;
+            transition: opacity 0.2s;
+        }
+        .playback-controls button:hover { opacity: 0.8; }
+        .btn-play-all { background-color: #2196F3; }
+        .btn-play-step { background-color: #4CAF50; }
+        .btn-stop { background-color: #9e9e9e; }
+
         /* 結果エリア */
         #result {
             width: 100%;
@@ -308,12 +337,16 @@
 
         <div class="staff-area" id="staff-area">
             <div class="staff-inner" id="staff-inner">
-                <!-- 音部記号 -->
                 <div class="clef-symbol treble-clef">𝄞</div>
                 <div class="clef-symbol bass-clef">𝄢</div>
-                <!-- 幽霊音符(マウス追従) -->
                 <div class="note-element ghost-note" id="ghost-note"></div>
             </div>
+        </div>
+
+        <div class="playback-controls">
+            <button class="btn-play-all" onclick="playAll()">▶ テスト演奏</button>
+            <button class="btn-play-step" onclick="playStep()">🎵 一音ずつ演奏</button>
+            <button class="btn-stop" onclick="stopPlayback()">⏹ 停止／リセット</button>
         </div>
     </div>
 
@@ -340,14 +373,11 @@
             { prefix: '高', label: '高音 (High)' }
         ];
         
-        // 初期セット用のキー配列（白鍵・黒鍵別）
         const defaultWhiteKeys = "zxcvbnmasdfghjqwertyu".split("");
         const defaultBlackKeys = "1234567890iop@[".split("");
-
         let isLocked = false;
 
         window.onload = () => {
-            // 鍵盤生成
             const keyboardDiv = document.getElementById('keyboard');
             let whiteIndex = 0;
             let blackIndex = 0;
@@ -367,7 +397,6 @@
                     if (octave.prefix === '低') displayLabel = '↓<br>' + note.id;
                     if (octave.prefix === '高') displayLabel = '↑<br>' + note.id;
 
-                    // 白鍵・黒鍵それぞれ順番に割り当て
                     let defKey = '';
                     if (note.isBlack) {
                         defKey = defaultBlackKeys[blackIndex] || '';
@@ -382,13 +411,13 @@
                         <input type="text" class="key-input" data-note="${fullNoteName}" value="${defKey}" maxlength="1" autocomplete="off">
                     `;
 
-                    // 入力変更時に即座に結果へ反映
                     keyDiv.querySelector('input').addEventListener('input', updateOutput);
-                    
-                    // ロック中の鍵盤クリックイベント
                     keyDiv.addEventListener('click', () => {
                         if (isLocked) {
                             addNoteFromKey(fullNoteName);
+                            // 鍵盤クリック時も音を鳴らす
+                            const pitch = pitches.find(p => p.note === fullNoteName.replace('#', ''));
+                            if(pitch) playTone(getFrequency({pitch: pitch, isSharp: fullNoteName.includes('#')}), 0.3);
                         }
                     });
 
@@ -397,7 +426,6 @@
                 keyboardDiv.appendChild(octaveDiv);
             });
 
-            // 五線譜の線を生成
             const staffInner = document.getElementById('staff-inner');
             const linesY = [30, 50, 70, 90, 110, 150, 170, 190, 210, 230];
             linesY.forEach(y => {
@@ -411,7 +439,6 @@
             staffInner.appendChild(barLine);
         };
 
-        // --- ロック機能 ---
         function toggleLock() {
             isLocked = !isLocked;
             const btn = document.getElementById('lock-btn');
@@ -431,7 +458,7 @@
             }
         }
 
-        // --- 楽譜入力（五線譜）のロジック ---
+        // --- 楽譜入力ロジック ---
         let isSharpMode = false;
         let scoreList = [];
         const staffOffsetX = 70; 
@@ -458,7 +485,6 @@
         const staffArea = document.getElementById('staff-area');
         const ghostNote = document.getElementById('ghost-note');
 
-        // 五線譜マウス追従
         staffArea.addEventListener('mousemove', (e) => {
             const rect = staffArea.getBoundingClientRect();
             let y = e.clientY - rect.top + staffArea.scrollTop;
@@ -475,11 +501,8 @@
             ghostNote.innerHTML = generateNoteHTML(pitch, isSharpMode && canBeSharp(pitch.note), true);
         });
 
-        staffArea.addEventListener('mouseleave', () => {
-            ghostNote.style.display = 'none';
-        });
+        staffArea.addEventListener('mouseleave', () => { ghostNote.style.display = 'none'; });
 
-        // 五線譜クリック
         staffArea.addEventListener('click', (e) => {
             if (ghostNote.style.display === 'none') return;
             const snappedY = parseInt(ghostNote.style.top);
@@ -487,30 +510,32 @@
             if (!pitch) return;
 
             const isSharp = isSharpMode && canBeSharp(pitch.note);
-            scoreList.push({ pitch, isSharp });
+            const noteData = { pitch, isSharp };
             
+            stopPlayback(); // 編集時は再生を止める
+            scoreList.push(noteData);
+            
+            // クリック時も音を鳴らす
+            playTone(getFrequency(noteData), 0.3);
+
             renderScore();
             updateOutput();
             ghostNote.style.left = (staffOffsetX + scoreList.length * noteSpacing) + 'px';
         });
 
-        // 鍵盤クリックからの入力処理
         function addNoteFromKey(fullNoteName) {
+            stopPlayback();
             const isSharp = fullNoteName.includes('#');
             const baseNoteName = fullNoteName.replace('#', '');
             const pitch = pitches.find(p => p.note === baseNoteName);
 
             if (!pitch) return;
-
             scoreList.push({ pitch, isSharp });
             renderScore();
             updateOutput();
-            
-            // プレビュー位置の更新
             ghostNote.style.left = (staffOffsetX + scoreList.length * noteSpacing) + 'px';
         }
 
-        // 音符HTML生成
         function generateNoteHTML(pitch, isSharp, isGhost = false) {
             let html = '';
             if (isSharp) html += '<span class="sharp-sign">♯</span>';
@@ -524,13 +549,10 @@
             else stemDir = pitch.y >= 190 ? 'up' : 'down';
             html += `<div class="stem-${stemDir}"></div>`;
 
-            if (isGhost) {
-                html += `<div class="pitch-label">${pitch.note}${isSharp ? '♯' : ''}</div>`;
-            }
+            if (isGhost) html += `<div class="pitch-label">${pitch.note}${isSharp ? '♯' : ''}</div>`;
             return html;
         }
 
-        // 描画
         function renderScore() {
             const staffInner = document.getElementById('staff-inner');
             document.querySelectorAll('.placed-note').forEach(el => el.remove());
@@ -538,6 +560,7 @@
             scoreList.forEach((noteData, index) => {
                 const div = document.createElement('div');
                 div.className = 'note-element placed-note';
+                div.id = 'note-' + index;
                 div.style.left = (staffOffsetX + index * noteSpacing) + 'px';
                 div.style.top = noteData.pitch.y + 'px';
                 div.innerHTML = generateNoteHTML(noteData.pitch, noteData.isSharp);
@@ -549,7 +572,6 @@
             staffArea.scrollLeft = staffArea.scrollWidth;
         }
 
-        // 結果更新
         function updateOutput() {
             const mapping = {};
             document.querySelectorAll('.key-input').forEach(input => {
@@ -566,7 +588,6 @@
             document.getElementById('result').value = resultKeys.join(' ');
         }
 
-        // --- ツールバー操作 ---
         function toggleSharp() {
             isSharpMode = !isSharpMode;
             const btn = document.getElementById('sharp-btn');
@@ -585,6 +606,7 @@
         }
 
         function removeLastNote() {
+            stopPlayback();
             if (scoreList.length > 0) {
                 scoreList.pop();
                 renderScore();
@@ -594,6 +616,7 @@
         }
 
         function clearScore() {
+            stopPlayback();
             scoreList = [];
             renderScore();
             updateOutput();
@@ -606,6 +629,126 @@
                 toggleSharp();
             }
         });
+
+        // --- 音声合成 (Web Audio API) と再生ロジック ---
+        let audioCtx = null;
+        let currentPlayIndex = 0;
+        let isPlayingAll = false;
+        let playTimeoutId = null;
+
+        function initAudio() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        // 譜面データから周波数（Hz）を計算
+        function getFrequency(noteData) {
+            let noteName = noteData.pitch.note;
+            let octaveBase = 60; // 真ん中のド (C4)
+            if (noteName.startsWith('低')) { octaveBase = 48; noteName = noteName.substring(1); }
+            else if (noteName.startsWith('高')) { octaveBase = 72; noteName = noteName.substring(1); }
+            
+            const offsets = { 'ド':0, 'レ':2, 'ミ':4, 'ファ':5, 'ソ':7, 'ラ':9, 'シ':11 };
+            let midiNote = octaveBase + offsets[noteName];
+            if (noteData.isSharp) midiNote += 1;
+            
+            return 440 * Math.pow(2, (midiNote - 69) / 12);
+        }
+
+        // 指定周波数の音を鳴らす
+        function playTone(freq, duration) {
+            initAudio();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            
+            osc.type = 'triangle'; // ピアノ寄りの柔らかい波形
+            osc.frequency.value = freq;
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            osc.start();
+            gain.gain.setValueAtTime(1, audioCtx.currentTime);
+            // 音をフェードアウトさせる
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+            osc.stop(audioCtx.currentTime + duration);
+        }
+
+        // 再生中の音符をハイライト
+        function highlightNoteIndex(index) {
+            document.querySelectorAll('.placed-note').forEach((el, i) => {
+                if (i === index) {
+                    el.classList.add('playing');
+                    // 自動スクロール
+                    const staffArea = document.getElementById('staff-area');
+                    const noteLeft = parseInt(el.style.left);
+                    if (noteLeft > staffArea.scrollLeft + staffArea.clientWidth - 50) {
+                        staffArea.scrollLeft = noteLeft - staffArea.clientWidth / 2;
+                    } else if (noteLeft < staffArea.scrollLeft + 50) {
+                        staffArea.scrollLeft = noteLeft - 50;
+                    }
+                } else {
+                    el.classList.remove('playing');
+                }
+            });
+        }
+
+        // テスト演奏（全体再生）
+        function playAll() {
+            if (scoreList.length === 0) return;
+            initAudio();
+            stopPlayback(); // 一旦リセット
+            isPlayingAll = true;
+            playNextSequence();
+        }
+
+        function playNextSequence() {
+            if (!isPlayingAll || currentPlayIndex >= scoreList.length) {
+                stopPlayback();
+                return;
+            }
+            
+            const noteData = scoreList[currentPlayIndex];
+            playTone(getFrequency(noteData), 0.4);
+            highlightNoteIndex(currentPlayIndex);
+            
+            currentPlayIndex++;
+            playTimeoutId = setTimeout(playNextSequence, 400); // 400ms間隔
+        }
+
+        // 一音ずつ演奏
+        function playStep() {
+            if (scoreList.length === 0) return;
+            initAudio();
+            isPlayingAll = false;
+            clearTimeout(playTimeoutId);
+            
+            if (currentPlayIndex >= scoreList.length) {
+                currentPlayIndex = 0; // 最後まで行ったら最初に戻る
+            }
+            
+            const noteData = scoreList[currentPlayIndex];
+            playTone(getFrequency(noteData), 0.4);
+            highlightNoteIndex(currentPlayIndex);
+            
+            currentPlayIndex++;
+        }
+
+        // 停止／リセット
+        function stopPlayback() {
+            isPlayingAll = false;
+            clearTimeout(playTimeoutId);
+            currentPlayIndex = 0;
+            highlightNoteIndex(-1); // ハイライト全解除
+            
+            // スクロール位置を最初に戻す
+            const staffArea = document.getElementById('staff-area');
+            staffArea.scrollLeft = 0;
+        }
     </script>
 </body>
 </html>
